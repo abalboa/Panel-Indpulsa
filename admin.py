@@ -5,9 +5,16 @@ import requests
 BIN_ID = "6a7566a3da38895dfec48c54"  
 API_KEY = "$2a$10$fhgij9c5sO3ezqwOcJi0u.V7MHzvSaLRPqlOfpkziPwfZByxDc9SG" 
 URL_BASE = f"https://api.jsonbin.io/v3/b/{BIN_ID}"
-HEADERS = {
+
+HEADERS_GET = {
+    "X-Master-Key": API_KEY,
+    "X-Bin-Meta": "false"
+}
+
+HEADERS_PUT = {
     "Content-Type": "application/json",
-    "X-Master-Key": API_KEY
+    "X-Master-Key": API_KEY,
+    "X-Bin-Versioning": "false"
 }
 
 # 2. Diccionario base con todas las actividades
@@ -19,38 +26,44 @@ ESTADOS_POR_DEFECTO = {
     "viernes-t1": "PENDIENTE", "viernes-t2": "PENDIENTE", "viernes-t3": "PENDIENTE"
 }
 
-# 3. Función para LEER el estado real desde la nube (Con 15 segundos de tolerancia)
+# 3. Función para LEER el estado real desde la nube
 def obtener_estados_nube():
     try:
-        url_get = f"{URL_BASE}?meta=false"
-        respuesta = requests.get(url_get, headers={"X-Master-Key": API_KEY}, timeout=15)
+        url_get = f"{URL_BASE}/latest"
+        respuesta = requests.get(url_get, headers=HEADERS_GET, timeout=15)
         if respuesta.status_code == 200:
-            datos_nube = respuesta.json()
-            # Combina asegurando que no falte ninguna clave
-            return {**ESTADOS_POR_DEFECTO, **datos_nube}
+            datos = respuesta.json()
+            
+            # Si JSONBin viene envuelto en "record", lo extraemos
+            if isinstance(datos, dict) and "record" in datos:
+                datos = datos["record"]
+            
+            # Combinamos asegurando todas las llaves
+            estados_limpios = {k: datos.get(k, "PENDIENTE") for k in ESTADOS_POR_DEFECTO}
+            return estados_limpios
         else:
-            st.error(f"Error al leer de la nube: Código {respuesta.status_code}")
-    except requests.exceptions.Timeout:
-        st.warning("⚠️ La nube tardó en responder. Mostrando datos temporales.")
+            st.error(f"Error al leer de JSONBin ({respuesta.status_code}): {respuesta.text}")
     except Exception as e:
-        st.error(f"Error de conexión: {e}")
+        st.error(f"Error de conexión al leer: {e}")
     return ESTADOS_POR_DEFECTO
 
 # 4. Función para GUARDAR cambios en la nube
-def actualizar_estado_nube(nuevos_estados):
+def guardar_cambio(key, nuevo_estado):
+    st.session_state.estados[key] = nuevo_estado
+    
+    # Enviamos solo las claves limpias
+    payload = {k: st.session_state.estados[k] for k in ESTADOS_POR_DEFECTO}
+    
     try:
-        with st.spinner("Guardando en la nube..."):
-            respuesta = requests.put(URL_BASE, json=nuevos_estados, headers=HEADERS, timeout=15)
-            if respuesta.status_code == 200:
-                st.success("✅ Nube actualizada con éxito", icon="☁️")
-            else:
-                st.error(f"Error al actualizar la nube: Código {respuesta.status_code}")
-    except requests.exceptions.Timeout:
-        st.error("Error: La nube tardó demasiado en responder al guardar. Intenta de nuevo.")
+        respuesta = requests.put(URL_BASE, json=payload, headers=HEADERS_PUT, timeout=15)
+        if respuesta.status_code == 200:
+            st.toast(f"✅ {key} actualizado a {nuevo_estado}", icon="☁️")
+        else:
+            st.error(f"❌ Error al guardar en JSONBin ({respuesta.status_code}): {respuesta.text}")
     except Exception as e:
-        st.error(f"Error de conexión al guardar: {e}")
+        st.error(f"❌ Error de conexión al guardar: {e}")
 
-# 5. Cargar datos al iniciar la sesión
+# 5. Cargar datos en la sesión
 if 'estados' not in st.session_state:
     st.session_state.estados = obtener_estados_nube()
 
@@ -58,10 +71,9 @@ if 'estados' not in st.session_state:
 st.title("🎛️ Panel de Control - Evento Indpulsa")
 st.write("Los cambios realizados aquí se guardan en la nube y se reflejan en la web para todos.")
 
-# Botón para sincronizar manualmente
+# Botón para forzar sincronización
 if st.button("🔄 Sincronizar datos de la nube"):
-    with st.spinner("Descargando estados actuales..."):
-        st.session_state.estados = obtener_estados_nube()
+    st.session_state.estados = obtener_estados_nube()
     st.rerun()
 
 st.markdown("---")
@@ -124,18 +136,15 @@ for dia, talleres in talleres_por_dia.items():
         col1, col2, col3 = st.columns(3)
         
         if col1.button("🕒 Pendiente", key=f"btn_p_{key}"):
-            st.session_state.estados[key] = "PENDIENTE"
-            actualizar_estado_nube(st.session_state.estados)
+            guardar_cambio(key, "PENDIENTE")
             st.rerun()
 
         if col2.button("▶️ En Proceso", key=f"btn_e_{key}"):
-            st.session_state.estados[key] = "EN PROCESO"
-            actualizar_estado_nube(st.session_state.estados)
+            guardar_cambio(key, "EN PROCESO")
             st.rerun()
 
         if col3.button("✅ Finalizado", key=f"btn_f_{key}"):
-            st.session_state.estados[key] = "FINALIZADO"
-            actualizar_estado_nube(st.session_state.estados)
+            guardar_cambio(key, "FINALIZADO")
             st.rerun()
             
     st.markdown("---")
