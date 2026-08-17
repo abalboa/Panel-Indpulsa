@@ -19,33 +19,38 @@ ESTADOS_POR_DEFECTO = {
     "viernes-t1": "PENDIENTE", "viernes-t2": "PENDIENTE", "viernes-t3": "PENDIENTE"
 }
 
-# 3. Función para LEER el estado real desde la nube
+# 3. Función para LEER el estado real desde la nube (Con 15 segundos de tolerancia)
 def obtener_estados_nube():
     try:
-        # Petición a JSONBin para traer la última versión guardada
-        url_get = f"{URL_BASE}/latest?meta=false"
-        respuesta = requests.get(url_get, headers={"X-Master-Key": API_KEY}, timeout=5)
+        url_get = f"{URL_BASE}?meta=false"
+        respuesta = requests.get(url_get, headers={"X-Master-Key": API_KEY}, timeout=15)
         if respuesta.status_code == 200:
             datos_nube = respuesta.json()
-            # Combina con los valores por defecto si falta alguna clave
-            estados_completos = {**ESTADOS_POR_DEFECTO, **datos_nube}
-            return estados_completos
+            # Combina asegurando que no falte ninguna clave
+            return {**ESTADOS_POR_DEFECTO, **datos_nube}
+        else:
+            st.error(f"Error al leer de la nube: Código {respuesta.status_code}")
+    except requests.exceptions.Timeout:
+        st.warning("⚠️ La nube tardó en responder. Mostrando datos temporales.")
     except Exception as e:
-        st.error(f"Error al leer datos de la nube: {e}")
+        st.error(f"Error de conexión: {e}")
     return ESTADOS_POR_DEFECTO
 
 # 4. Función para GUARDAR cambios en la nube
 def actualizar_estado_nube(nuevos_estados):
     try:
-        respuesta = requests.put(URL_BASE, json=nuevos_estados, headers=HEADERS, timeout=5)
-        if respuesta.status_code == 200:
-            st.success("✅ Nube actualizada con éxito", icon="☁️")
-        else:
-            st.error(f"Error al actualizar la nube: Código {respuesta.status_code}")
+        with st.spinner("Guardando en la nube..."):
+            respuesta = requests.put(URL_BASE, json=nuevos_estados, headers=HEADERS, timeout=15)
+            if respuesta.status_code == 200:
+                st.success("✅ Nube actualizada con éxito", icon="☁️")
+            else:
+                st.error(f"Error al actualizar la nube: Código {respuesta.status_code}")
+    except requests.exceptions.Timeout:
+        st.error("Error: La nube tardó demasiado en responder al guardar. Intenta de nuevo.")
     except Exception as e:
         st.error(f"Error de conexión al guardar: {e}")
 
-# 5. Cargar datos en la sesión actual
+# 5. Cargar datos al iniciar la sesión
 if 'estados' not in st.session_state:
     st.session_state.estados = obtener_estados_nube()
 
@@ -55,12 +60,13 @@ st.write("Los cambios realizados aquí se guardan en la nube y se reflejan en la
 
 # Botón para sincronizar manualmente
 if st.button("🔄 Sincronizar datos de la nube"):
-    st.session_state.estados = obtener_estados_nube()
+    with st.spinner("Descargando estados actuales..."):
+        st.session_state.estados = obtener_estados_nube()
     st.rerun()
 
 st.markdown("---")
 
-# 6. Estructura de actividades organizadas por día
+# 6. Estructura de actividades
 talleres_por_dia = {
     "Lunes": [
         ("lunes-t1", "Lanzamiento de Indpulsa"),
@@ -112,7 +118,6 @@ for dia, talleres in talleres_por_dia.items():
     for key, nombre in talleres:
         st.subheader(f"🔹 {nombre}")
         
-        # Muestra el estado que está guardado en la nube
         estado_actual = st.session_state.estados.get(key, "PENDIENTE")
         st.info(f"Estado actual: **{estado_actual}**")
         
