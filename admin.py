@@ -30,7 +30,7 @@ ESTADOS_POR_DEFECTO = {
 def obtener_estados_nube():
     try:
         url_get = f"{URL_BASE}/latest"
-        respuesta = requests.get(url_get, headers=HEADERS_GET, timeout=15)
+        respuesta = requests.get(url_get, headers=HEADERS_GET, timeout=30)
         if respuesta.status_code == 200:
             datos = respuesta.json()
             
@@ -55,7 +55,7 @@ def guardar_cambio(key, nuevo_estado):
     payload = {k: st.session_state.estados[k] for k in ESTADOS_POR_DEFECTO}
     
     try:
-        respuesta = requests.put(URL_BASE, json=payload, headers=HEADERS_PUT, timeout=15)
+        respuesta = requests.put(URL_BASE, json=payload, headers=HEADERS_PUT, timeout=30)
         if respuesta.status_code == 200:
             st.toast(f"✅ {key} actualizado a {nuevo_estado}", icon="☁️")
         else:
